@@ -1,0 +1,13 @@
+{
+  "name": "projectTest",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "ionic1",
+  "watchPatterns": [
+    "scss/**/*",
+    "www/**/*",
+    "!www/lib/**/*",
+    "!www/**/*.map"
+  ]
+}
