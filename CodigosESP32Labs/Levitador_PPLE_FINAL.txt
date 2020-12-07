@@ -1,0 +1,247 @@
+#include <dummy.h>
+
+//These define's must be placed at the beginning before #include "TimerInterrupt.h"
+//#define TIMER_INTERRUPT_DEBUG      1
+//#include "ESP32TimerInterrupt.h"
+#include <Arduino.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <Wire.h>
+
+// RTOS Tasks
+
+TaskHandle_t control_Loop;
+
+// Replace the next variables with your SSID/Password combination
+const char* ssid = "Charlie";
+const char* password = "hellomoto";
+
+// Add your MQTT Broker IP address, example:
+//const char* mqtt_server = "192.168.1.144";
+const char* mqtt_server = "3.21.85.235";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+long lastMsg = 0;
+
+// variables del PID
+
+float Ts = 0.005; // periodo de muestreo segundos
+unsigned long   Ts_usec = (unsigned long) 1000000*Ts; // El tiempo de las interrupciones se pasa en microsegundos
+
+// Parametros de la referencia 
+float periodRef = 50; //Semiperiodo de la referencia
+float minRef = 1;
+float minRefData = 1;
+float maxRef = 2;
+float manRefData = 2;
+
+float meanRef = (minRef + maxRef)/2;
+float meanRefData;
+float sqwave =  (maxRef - minRef)/2;
+float sqwaveData;
+
+float ref = 0;
+float I = 0;
+float kp = 0.5;
+float ki = 1;
+float kib = Ts*ki;
+float y = 0;
+float P = 0;
+float e = 0;
+
+// Variables del levitador
+
+#define  alpha    0.02356
+#define  m        0.04
+#define  L        100
+#define  g        10
+#define  tau      0.1
+#define  km       1
+
+
+
+float u = 0;
+float uN = sqrt(m*g/alpha)/km;
+float x1 = 0;
+float x2 = 0;
+float va = 0;
+float p1 = Ts*alpha/m;
+float p2 =  -Ts*g;
+float p3 = 1-Ts/tau;
+float p4 = Ts*km/tau;
+
+// Funciones
+
+void controlLoop(void* parameter){
+  for(;;){
+    
+    static unsigned long   n = 0;    
+    static boolean toggle = LOW;
+    
+    n+=1; //numero de veces que se invoca la rutina de control 
+    
+    if (n %  (int) floor(periodRef/Ts) ==0){
+        sqwave = - sqwave; // onda cuadrada de referencia   
+    } 
+
+    ref = meanRef + sqwave; 
+     
+    // planta 
+
+    x1 = x1 + Ts*x2;
+    x2 = p1*(va - x2)*(va - x2) + p2 + x2;
+    va = p3*va + p4*u;
+    y = x1;
+     
+    
+     // Controlador
+
+    e = ref - y;    
+    P = kp*e;
+    I = I + kib*e;
+    u = uN + P + I;  
+    
+   /* if ( n % 5 == 0) {
+        Serial.print(ref,2);
+        Serial.print('\t');
+        Serial.println(y);
+        }
+   */
+   
+    delay(1);
+  }
+  // vTaskDelay(10);
+}       
+
+void setup_wifi() {
+  delay(10);
+
+  // We start by connecting to a WiFi network
+  //Serial.println();
+  //Serial.print("Connecting to ");
+  //Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    // Serial.print(".");
+  }
+
+  // Serial.println("");
+  //Serial.println("WiFi connected");
+  //Serial.println("IP local address: ");
+  //Serial.println(WiFi.localIP());
+}
+
+void callback(char* topic, byte* message, unsigned int length) {
+  // Serial.print("Message arrived on topic: ");
+  // Serial.print(topic);
+  // Serial.print(". Message: ");
+  String messageTemp;
+
+  for (int i = 0; i < length; i++) {
+    // Serial.print((char)message[i]);
+    messageTemp += (char)message[i];
+  }
+  // Serial.println();
+
+  // Feel free to add more if statements to control things and GPIO's with MQTT
+
+  // If a message is received on the topic esp32/signalOffset. 
+  // Changes ref according to the message received
+  if (String(topic) == "esp32/meanRef") {
+      meanRef = messageTemp.toFloat();  // Assings the value of messageTemp (String) to ref (Float)
+      meanRefData = meanRef;
+  }
+
+  if (String(topic) == "esp32/sqwave") {
+      sqwave = messageTemp.toFloat();  // Assings the value of messageTemp (String), which is the signalOffset (Float)      
+      sqwaveData = sqwave;
+  }
+
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect("ESP8266Client")) {     // Leave this on its site, since ESP32Client is not available yet
+      // Serial.println("connected");
+      // Subscribe
+      client.subscribe("esp32/meanRef");
+      client.subscribe("esp32/sqwave");
+    } else {
+      // Serial.print("failed, rc=");
+      // Serial.print(client.state());
+      // Serial.println(" try again in 5 seconds");
+      // Wait 1 seconds before retrying
+      delay(500);
+    }
+  }
+}
+
+void setup() {
+
+  xTaskCreatePinnedToCore(                  // Poner loop2
+    controlLoop,         // Función loop2
+    "Control Loop",      // Nombre
+    10000,
+    NULL,
+    1,                   // Prioridad
+    &control_Loop,       // Task Handle
+    0);                  // Núcleo del Task
+  
+  Serial.begin(115200);
+  setup_wifi();
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
+  
+}
+
+void loop() {
+  
+  if (!client.connected()) {
+    reconnect();
+  }
+  //Serial.println("loop connected ");
+  
+  client.loop();
+  
+  //Serial.println("Client loop ");
+// new readings are being published every 0.15 seconds
+  
+   long now = millis();
+   if (now - lastMsg > 150) {
+   lastMsg = now;
+
+   Serial.println("Send now ");
+
+    // Convert the float value to a char array
+    char outputString[8];
+    dtostrf(y, 1, 2, outputString);
+    client.publish("esp32/output", outputString);
+
+    char referenceString[8];
+    dtostrf(ref, 1, 2, referenceString);
+    client.publish("esp32/reference", referenceString);
+
+  /*  char meanRefString[8];
+    dtostrf(meanRefData, 1, 2, meanRefString);
+    client.publish("esp32/meanRefData", meanRefString);
+
+    char sqwaveString[8];
+    dtostrf(sqwaveData, 1, 2, sqwaveString);
+    client.publish("esp32/sqwaveData", sqwaveString);
+
+    char sqwaveValueString[8];
+    dtostrf(sqwaveValue, 1, 2, sqwaveValueString);
+    client.publish("esp32/sqwaveData", sqwaveValueString);
+  */
+    Serial.println("Data Sent " + String(xPortGetCoreID()));
+    }
+}

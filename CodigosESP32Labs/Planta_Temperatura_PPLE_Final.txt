@@ -1,1 +1,207 @@
+//These define's must be placed at the beginning before #include "TimerInterrupt.h"
 
+#include <Arduino.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <OneWire.h>
+#include <DS18B20.h>
+
+// RTOS Tasks
+
+TaskHandle_t control_Loop;
+
+// Replace the next variables with your SSID/Password combination
+const char* ssid = "73969727";
+const char* password = "33413630383335324332444332";
+
+// Add your MQTT Broker IP address, example:
+//const char* mqtt_server = "192.168.1.144";
+const char* mqtt_server = "3.133.112.128";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+long lastMsg = 0;
+char msg[50];
+int value = 0;
+
+// Setup sensor
+
+#define  ONE_WIRE_BUS 26
+OneWire  oneWire(ONE_WIRE_BUS);
+DS18B20  sensor(&oneWire);
+#define  IBPIN        25
+#define  frequency    1000
+#define  ledChannel   0
+#define  resolution   12
+
+// Variables del PID
+
+float Ts = 0.75; // periodo de muestreo segundos
+unsigned long   Ts_usec = (unsigned long) 1000000*Ts; // El tiempo de las interrupciones se pasa en microsegundos
+
+// parametros de la referencia
+volatile float ref = 0;
+float sqwave = 2.5;
+volatile float signalOffset = 32.5;
+volatile float Offset;
+
+// parametros del controlador
+
+float kp = 21.79;
+float ki = 1.07;
+float kd  = 54.32; 
+float N = 10.85;
+float P = 0;         
+float I = 0;      
+float D = 0;      
+float b = .85;
+float Tt = 5;
+
+// constantes para calcular la funcion PID
+   
+float br = Ts/Tt;
+float ad = kd/(N*(kd/N + Ts));
+float bd = kd/(kd/N + Ts);  
+
+float ki_dig = Ts*ki;
+float kd_dig = kd / Ts;
+volatile float Temp = 0;
+float Temp_ant = 0;      //  Temp[k-1]  
+float I_ant = 0;      //  I[k-1]  
+float e = 0;
+float u = 0;
+float usat = 0;
+float u_nominal = 33; 
+
+// referencia
+float   periodRef = 200; //semiperiodo de la referencia
+
+// Funciones
+
+void controlLoop(void* parameter){
+  for(;;){
+    
+    static unsigned long   n = 0;   
+    if (n %  (int) floor(periodRef/Ts) ==0){ 
+       sqwave = -sqwave; // onda cuadrada de referencia 
+       ref = signalOffset + sqwave;             
+    } 
+    Temp = sensor.getTempC();
+    sensor.requestTemperatures();  
+    Serial.println(Temp);
+    e = ref - Temp;    
+    P = kp*(b*ref -Temp);
+    D = ad*D - bd*(Temp - Temp_ant);
+    u = u_nominal + P + I + D; 
+    
+    // saturacion del actuador
+    
+    if (u > 100){
+        usat = 100;  
+    }
+    else if (u < 0){
+        usat = 0;
+    }
+    else {
+        usat = u;   
+    }    
+    ledcWrite(ledChannel, usat*40.95);   
+    I = I + ki_dig*(ref - Temp) + br*(usat - u);
+    Temp_ant = Temp;
+   /* Serial.print(ref, 2);
+    Serial.print(",");
+    Serial.print(usat/10+20, 2);
+    Serial.print(",");
+    Serial.println(Temp, 2);*/    
+    n += 1;
+
+    delay(1);
+  }
+}       
+
+void setup_wifi() {
+  delay(10);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+  }
+}
+
+void callback(char* topic, byte* message, unsigned int length) {
+  String messageTemp;
+  for (int i = 0; i < length; i++) {
+    messageTemp += (char)message[i];
+  }
+  if (String(topic) == "esp/signalOffset") {
+      signalOffset = messageTemp.toFloat();  // Assings the value of messageTemp (String), which is the signalOffset (Float)      
+      Offset = signalOffset;
+  }
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    if (client.connect("ESP8266Client")) {     // Leave this on its site, since ESP32Client is not available yet
+      client.subscribe("esp/signalOffset");
+    } else {
+      delay(1000);
+    }
+  }
+}
+
+void setup() {
+
+  Serial.begin(115200);
+  sensor.begin();
+  sensor.requestTemperatures();
+  pinMode(IBPIN, OUTPUT);
+  ledcSetup(ledChannel, frequency, resolution);
+  ledcAttachPin(IBPIN, ledChannel); 
+  ledcWrite(ledChannel, 2048); 
+  delay(1000); 
+  
+  setup_wifi();
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
+
+  xTaskCreatePinnedToCore(                  // Poner loop2
+    controlLoop,         // FunciÃ³n loop2
+    "Control Loop",      // Nombre
+    10000,
+    NULL,
+    1,                   // Prioridad
+    &control_Loop,       // Task Handle
+    0);                  // NÃºcleo del Task
+}
+
+void loop() {
+  
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+// new readings are being published every 0.1 seconds
+  
+   long now = millis();
+   if (now - lastMsg > 100) {
+   lastMsg = now;
+
+    // Convert the float value to a char array
+    char outputString[8];
+    dtostrf(Temp, 1, 2, outputString);
+    client.publish("esp/output", outputString);
+    // Serial.println("Output Sent");
+
+    char referenceString[8];
+    dtostrf(ref, 1, 2, referenceString);
+    client.publish("esp/reference", referenceString);
+    // Serial.println("Ref Sent");
+
+    char signalOffsetString[8];
+    dtostrf(Offset, 1, 2, signalOffsetString);
+    client.publish("esp/signalOffsetData", signalOffsetString);
+    // Serial.println("Offset Sent");
+    }
+}
