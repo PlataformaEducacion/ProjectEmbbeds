@@ -1,0 +1,16 @@
+/* Empty. Add your own CSS if you like */
+h3.log0{display: none;}
+h3.log1{
+    color: red;
+    display: inline;
+}
+h3.reg1{
+    color: blue;
+    display: inline;
+}
+img.Hide{display:none;}
+img.Content{
+    display:inline-block;
+    width:300px;
+    height:300px;
+}

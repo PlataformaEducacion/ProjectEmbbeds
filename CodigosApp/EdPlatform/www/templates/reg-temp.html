@@ -1,0 +1,38 @@
+<ion-view href="#/login/register" view-title="Crear cuenta">
+    <ion-content>
+        <ion-nav-back-button href="#/login"></ion-nav-back-button>
+        <ion-refresher
+          pulling-text="Pull to refresh..."
+          on-refresh="doRefresh()">
+        </ion-refresher>
+        <h3 style="text-align:center;"> Ingrese su nombre de usuario</h3>
+        <p style="text-align:center; font-size:90%"> Debe contener al menos 5 caracteres, incluyendo
+            <br> al menos una letra minúscula (a-z).</p>
+        <div class="list card">
+            <div class="item-input">
+               <input type="text" ng-model="note.id">
+            </div>
+        </div>
+        <h3 style="text-align:center;"> Ingrese su contraseña</h3>
+        
+        <p style="text-align:center; font-size:90%;"> Debe contener al menos 8 caracteres, incluyendo al menos una letra
+            minúscula (a-z), una mayúscula (A-Z) y un número (0-9).</p>
+        <div class="list card">
+            <div class="item-input">
+                <input type="password" ng-model="note.pass" id="pass2">
+            </div>
+            <ion-checkbox class="checkbox-positive" ng-click="showPass()">
+                Mostrar contraseña</ion-checkbox>
+        </div>
+
+        <h3 class="{{msgStyle}}" id="regMsg"></h3>
+        <div class="list card">
+            <div class="padding">
+                <a href="#/{{guide}}">
+                    <button class="button button-block button-positive" ng-click="signUp()">
+                        Registrarse</button>
+                </a>
+            </div>
+        </div>
+    </ion-content>
+</ion-view>

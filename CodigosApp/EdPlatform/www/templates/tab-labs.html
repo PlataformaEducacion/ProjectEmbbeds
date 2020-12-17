@@ -1,0 +1,13 @@
+<ion-view view-title="Documentación de los laboratorios">
+  <ion-content>
+    <ion-list>
+      <ion-item class="item-remove-animate item-avatar item-icon-right" ng-repeat="lab in labs"
+                type="item-text-wrap" href="#/tab/labs/{{lab.id}}">
+        <img ng-src="{{lab.img1}}">
+        <h2>{{lab.name}}</h2>
+
+        <i class="icon ion-chevron-right icon-accessory"></i>
+      </ion-item>
+    </ion-list>
+  </ion-content>
+</ion-view>

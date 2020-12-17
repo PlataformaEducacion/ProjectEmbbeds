@@ -1,0 +1,12 @@
+<ion-view view-title="Vista web de los laboratorios">
+    <ion-content>
+        <ion-list>
+            <ion-item class="item-remove-animate item-icon-right" ng-repeat="lab in labs"
+                      type="item-text-wrap" href="#/tab/webview" ng-click="openLink(lab.url)">
+        <h2>{{lab.name}}</h2>
+
+        <i class="icon ion-chevron-right icon-accessory"></i>
+      </ion-item>
+        </ion-list>
+    </ion-content>
+</ion-view>
