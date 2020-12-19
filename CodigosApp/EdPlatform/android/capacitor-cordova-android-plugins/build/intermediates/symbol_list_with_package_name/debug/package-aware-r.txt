@@ -1,0 +1,4 @@
+capacitor.android.plugins
+drawable ic_action_next_item
+drawable ic_action_previous_item
+drawable ic_action_remove
